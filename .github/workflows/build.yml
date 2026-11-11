@@ -1,0 +1,126 @@
+# Publishes generated CloudStream plugins to the builds branch.
+name: Build
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches:
+      - master
+      - main
+    paths-ignore:
+      - '*.md'
+      - '.gitignore'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v7
+        with:
+          path: src
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Checkout Builds Branch
+        uses: actions/checkout@v7
+        continue-on-error: true
+        with:
+          ref: builds
+          path: builds
+          fetch-depth: 0
+
+      - name: Initialize Builds Branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ ! -d "${GITHUB_WORKSPACE}/builds/.git" ]; then
+            rm -rf "${GITHUB_WORKSPACE}/builds"
+            mkdir -p "${GITHUB_WORKSPACE}/builds"
+            git -C "${GITHUB_WORKSPACE}/builds" init -b builds
+          fi
+
+          git -C "${GITHUB_WORKSPACE}/builds" remote remove origin 2>/dev/null || true
+          git -C "${GITHUB_WORKSPACE}/builds" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          if ! git -C "${GITHUB_WORKSPACE}/builds" rev-parse --verify HEAD >/dev/null 2>&1; then
+            git -C "${GITHUB_WORKSPACE}/builds" checkout --orphan builds
+          fi
+
+      - name: Clean old builds
+        run: |
+          rm -f "${GITHUB_WORKSPACE}/builds"/*.cs3 || true
+          rm -f "${GITHUB_WORKSPACE}/builds"/*.jar || true
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@v6
+        with:
+          java-version: "21"
+          distribution: temurin
+          cache: gradle
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+
+      - name: Build Plugins
+        working-directory: ${{ github.workspace }}/src
+        env:
+          DUBBINDO_PASSWORD: ${{ secrets.DUBBINDO_PASS }}
+          DUBBINDO_USERNAME: ${{ secrets.DUBBINDO_USER }}
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew make makePluginsJson --no-daemon --stacktrace --refresh-dependencies
+
+          shopt -s globstar nullglob
+          files=(**/build/*.cs3)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "ERROR: no .cs3 files produced"
+            exit 1
+          fi
+          cp "${files[@]}" "${GITHUB_WORKSPACE}/builds/"
+          cp build/plugins.json "${GITHUB_WORKSPACE}/builds/"
+
+          echo "Built packages:"
+          ls -la "${GITHUB_WORKSPACE}/builds"/*.cs3
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: plugins-${{ github.sha }}
+          path: |
+            builds/*.cs3
+            builds/plugins.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Push builds branch
+        working-directory: ${{ github.workspace }}/builds
+        run: |
+          set -euo pipefail
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+
+          git add -A
+
+          if git diff --staged --quiet; then
+            echo "Nothing to commit on builds branch."
+            exit 0
+          fi
+
+          git commit -m "Build ${GITHUB_SHA}"
+
+          # The builds branch is generated output; replace it with this build.
+          git push origin HEAD:refs/heads/builds --force
