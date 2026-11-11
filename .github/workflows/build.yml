@@ -8,11 +8,8 @@ concurrency:
 on:
   push:
     branches:
-      - master
       - main
-    paths-ignore:
-      - '*.md'
-      - '.gitignore'
+      - master
   workflow_dispatch:
 
 permissions:
@@ -92,9 +89,12 @@ jobs:
           fi
           cp "${files[@]}" "${GITHUB_WORKSPACE}/builds/"
           cp build/plugins.json "${GITHUB_WORKSPACE}/builds/"
+          cp repo.json "${GITHUB_WORKSPACE}/builds/"
 
           echo "Built packages:"
           ls -la "${GITHUB_WORKSPACE}/builds"/*.cs3
+          test -s "${GITHUB_WORKSPACE}/builds/plugins.json"
+          test -s "${GITHUB_WORKSPACE}/builds/repo.json"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
@@ -103,6 +103,7 @@ jobs:
           path: |
             builds/*.cs3
             builds/plugins.json
+            builds/repo.json
           if-no-files-found: error
           retention-days: 14
 
@@ -121,6 +122,4 @@ jobs:
           fi
 
           git commit -m "Build ${GITHUB_SHA}"
-
-          # The builds branch is generated output; replace it with this build.
           git push origin HEAD:refs/heads/builds --force
