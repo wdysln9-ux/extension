@@ -1,0 +1,9 @@
+{
+  "name": "AnimeX",
+  "iconUrl": "https://avatars.githubusercontent.com/u/146099520?v=4&size=512",
+  "description": "A curated collection of CloudStream extensions for anime and donghua, with Indonesian subtitles",
+  "manifestVersion": 1,
+  "pluginLists": [
+    "https://raw.githubusercontent.com/wdysln9-ux/extension/builds/plugins.json"
+  ]
+}
