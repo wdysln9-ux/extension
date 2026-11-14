@@ -353,6 +353,28 @@
         "fileHash": "sha256-7af1f286703519f5ba9455e95203a6da8d1e935ebe73e2af644c0c915b13e775"
     },
     {
+        "url": "https://raw.githubusercontent.com/wdysln9-ux/extension/builds/SakunimeProvider.cs3",
+        "status": 1,
+        "version": 1,
+        "name": "SakunimeProvider",
+        "internalName": "SakunimeProvider",
+        "authors": [
+            "wdysln9-ux"
+        ],
+        "description": "Sakunime anime provider with episode, server and subtitle support",
+        "fileSize": 16299,
+        "repositoryUrl": "https://github.com/wdysln9-ux/extension",
+        "language": "id",
+        "tvTypes": [
+            "Anime",
+            "AnimeMovie",
+            "OVA"
+        ],
+        "iconUrl": "https://www.google.com/s2/favicons?domain=sakunime.com&sz=%size%",
+        "apiVersion": 1,
+        "fileHash": "sha256-1231bf0e15c2a1e0fb920ef706eff0afaf54813801ea2077abc93e1ad70207c5"
+    },
+    {
         "url": "https://raw.githubusercontent.com/wdysln9-ux/extension/builds/SamehadakuProvider.cs3",
         "status": 1,
         "version": 7,
