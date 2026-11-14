@@ -16,8 +16,9 @@ class SakunimeProvider : MainAPI() {
 
     override val mainPage = mainPageOf(
         "$mainUrl/anime/" to "Semua Anime",
-        "$mainUrl/anime/?status=ongoing" to "Ongoing",
-        "$mainUrl/anime/?status=completed" to "Completed"
+        "$mainUrl/anime/ongoing/" to "Ongoing",
+        "$mainUrl/anime/completed/" to "Completed",
+        "$mainUrl/anime/jadwal/" to "Jadwal Tayang"
     )
 
     private val headers = mapOf(
@@ -40,8 +41,10 @@ class SakunimeProvider : MainAPI() {
     private fun Element.toSearchResponse(): SearchResponse? {
         val anchor = if (tagName() == "a") this else selectFirst("a[href]") ?: return null
         val href = absolute(anchor.attr("href")) ?: return null
-        if (!href.startsWith(mainUrl) || href == mainUrl || href.contains("/genre/") ||
-            href.contains("/jadwal") || href.contains("/search")) return null
+        if (!href.startsWith(mainUrl) || href == mainUrl ||
+            href.contains("/genre/") || href.contains("/jadwal/") ||
+            href.contains("/ongoing/") || href.contains("/completed/") ||
+            href.contains("/search/")) return null
 
         val image = selectFirst("img") ?: anchor.selectFirst("img")
         val title = (selectFirst(".title, .anime-title, .entry-title, h2, h3")?.text()
@@ -71,7 +74,10 @@ class SakunimeProvider : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse> {
         if (query.isBlank()) return emptyList()
         val encoded = URLEncoder.encode(query.trim(), "UTF-8")
+        // Sakunime's current search route is /search/{query}/.
+        // Keep older query-based routes as fallbacks for server-side variants.
         val urls = listOf(
+            "$mainUrl/search/$encoded/",
             "$mainUrl/search/?q=$encoded",
             "$mainUrl/search/?keyword=$encoded",
             "$mainUrl/?s=$encoded"
