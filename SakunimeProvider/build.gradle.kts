@@ -1,7 +1,7 @@
-version = 5
+version = 6
 
 cloudstream {
-    description = "Sakunime anime provider with episode, server and subtitle support"
+    description = "Sakunime anime provider rebuilt with direct anime feed parsing"
     language = "id"
     authors = listOf("wdysln9-ux")
     status = 1
