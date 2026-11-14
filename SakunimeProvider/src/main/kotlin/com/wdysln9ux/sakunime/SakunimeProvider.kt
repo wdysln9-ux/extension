@@ -78,24 +78,22 @@ class SakunimeProvider : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val base = request.data
         val url = if (page <= 1) base else base + (if (base.contains("?")) "&" else "?") + "page=$page"
-        var document = app.get(url, headers = headers).document
-        var results = document.select("a[href*='/anime/']")
-            .mapNotNull { it.toSearchResponse() }.distinctBy { it.url }
 
-        // Beranda Sakunime juga memuat feed Ongoing dan Completed. Gunakan sebagai
-        // fallback jika endpoint kategori mengembalikan shell tanpa kartu anime.
+        // Jangan biarkan satu kategori kosong/error membuat seluruh halaman provider gagal.
+        suspend fun readCards(target: String): List<SearchResponse> = try {
+            app.get(target, headers = headers).document
+                .select("a[href*='/anime/']")
+                .mapNotNull { it.toSearchResponse() }
+                .distinctBy { it.url }
+        } catch (_: Exception) {
+            emptyList()
+        }
+
+        var results = readCards(url)
         if (results.isEmpty() && url != "$mainUrl/") {
-            document = app.get("$mainUrl/", headers = headers).document
-            results = document.select("a[href*='/anime/']")
-                .mapNotNull { it.toSearchResponse() }.distinctBy { it.url }
+            results = readCards("$mainUrl/")
         }
-
-        if (results.isEmpty()) {
-            val pageTitle = document.title().ifBlank { "(tanpa judul)" }
-            val preview = document.body()?.text()?.replace(Regex("\\s+"), " ")?.take(180).orEmpty()
-            throw ErrorLoadingException("Sakunime tidak mengirim kartu anime. Halaman: $pageTitle. Respons: $preview")
-        }
-        return newHomePageResponse(request.name, results, hasNext = true)
+        return newHomePageResponse(request.name, results, hasNext = results.isNotEmpty())
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
