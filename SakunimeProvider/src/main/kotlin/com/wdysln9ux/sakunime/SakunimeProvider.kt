@@ -15,6 +15,7 @@ class SakunimeProvider : MainAPI() {
     override val supportedTypes = setOf(TvType.Anime, TvType.AnimeMovie, TvType.OVA)
 
     override val mainPage = mainPageOf(
+        "$mainUrl/" to "Anime Terbaru",
         "$mainUrl/anime/" to "Semua Anime",
         "$mainUrl/anime/ongoing/" to "Ongoing",
         "$mainUrl/anime/completed/" to "Completed",
@@ -77,10 +78,24 @@ class SakunimeProvider : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val base = request.data
         val url = if (page <= 1) base else base + (if (base.contains("?")) "&" else "?") + "page=$page"
-        val document = app.get(url, headers = headers).document
-        val results = document.select("a[href*='/anime/']")
+        var document = app.get(url, headers = headers).document
+        var results = document.select("a[href*='/anime/']")
             .mapNotNull { it.toSearchResponse() }.distinctBy { it.url }
-        return newHomePageResponse(request.name, results, hasNext = results.isNotEmpty())
+
+        // Beranda Sakunime juga memuat feed Ongoing dan Completed. Gunakan sebagai
+        // fallback jika endpoint kategori mengembalikan shell tanpa kartu anime.
+        if (results.isEmpty() && url != "$mainUrl/") {
+            document = app.get("$mainUrl/", headers = headers).document
+            results = document.select("a[href*='/anime/']")
+                .mapNotNull { it.toSearchResponse() }.distinctBy { it.url }
+        }
+
+        if (results.isEmpty()) {
+            val pageTitle = document.title().ifBlank { "(tanpa judul)" }
+            val preview = document.body()?.text()?.replace(Regex("\\s+"), " ")?.take(180).orEmpty()
+            throw ErrorLoadingException("Sakunime tidak mengirim kartu anime. Halaman: $pageTitle. Respons: $preview")
+        }
+        return newHomePageResponse(request.name, results, hasNext = true)
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
