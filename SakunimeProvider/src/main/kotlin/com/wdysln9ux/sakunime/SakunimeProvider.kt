@@ -46,11 +46,15 @@ class SakunimeProvider : MainAPI() {
         return try {
             val uri = URI(url)
             if (!uri.host.equals(URI(mainUrl).host, true)) return null
-            val parts = uri.path.trim('/').split("/")
-            if (parts.size != 2 || parts[0] != "anime") return null
-            val slug = parts[1]
-            if (slug.isBlank() || slug in setOf("ongoing", "completed", "genre", "jadwal", "page")) null
-            else "/anime/$slug"
+            val parts = uri.path.split("/").filter { it.isNotBlank() }
+            if (parts.size < 2 || parts.first() != "anime") return null
+            // Daftar anime dapat memakai URL detail dengan trailing slash atau segmen tambahan.
+            // Tolak halaman kategori, tetapi pertahankan slug detail terakhir.
+            if (parts.size == 2 && parts[1].lowercase() in setOf("ongoing", "completed", "genre", "jadwal", "page")) return null
+            if (parts.size > 2 && parts[1].lowercase() in setOf("ongoing", "completed", "genre", "jadwal", "page")) return null
+            val slug = parts.last()
+            if (slug.isBlank() || slug.lowercase() in setOf("ongoing", "completed", "genre", "jadwal", "page")) null
+            else URI(mainUrl).resolve("/anime/$slug/").toString()
         } catch (_: Exception) {
             null
         }
@@ -66,28 +70,40 @@ class SakunimeProvider : MainAPI() {
     private fun Element.toAnimeResult(): SearchResponse? {
         val anchor = if (tagName() == "a") this else selectFirst("a[href]") ?: return null
         val href = absolute(anchor.attr("href")) ?: return null
-        val path = animePath(href) ?: return null
+        val detailUrl = animePath(href) ?: return null
 
-        var context: Element? = anchor
+        var node: Element? = anchor
         var image: Element? = anchor.selectFirst("img")
-        var title = anchor.attr("title").trim().ifBlank { anchor.text().trim() }
-        repeat(5) {
-            val current = context ?: return@repeat
+        var title = sequenceOf(
+            anchor.attr("title"), anchor.attr("aria-label"),
+            anchor.attr("data-title"), anchor.attr("data-name"),
+            anchor.text()
+        ).map { it.trim() }.firstOrNull { it.isNotBlank() }.orEmpty()
+
+        // Judul Sakunime kadang berada di sibling, bukan di dalam anchor poster.
+        for (depth in 0 until 8) {
+            val current = node ?: break
             if (image == null) image = current.selectFirst("img")
             if (title.isBlank()) {
-                title = current.selectFirst("h1, h2, h3, h4, .title, .anime-title, [class*=title]")?.text()?.trim().orEmpty()
+                title = sequenceOf(
+                    current.attr("data-title"), current.attr("data-name"),
+                    current.selectFirst("h1, h2, h3, h4, .title, .anime-title, [class*=title]")?.text(),
+                    current.selectFirst("[title]")?.attr("title"),
+                    current.selectFirst("img")?.attr("alt")
+                ).map { it?.trim().orEmpty() }.firstOrNull { it.isNotBlank() }.orEmpty()
             }
-            if (image != null && title.isNotBlank()) return@repeat
-            context = current.parent()
+            if (title.isNotBlank() && image != null) break
+            node = current.parent()
         }
-        if (title.isBlank()) title = image?.attr("alt")?.trim().orEmpty()
+
+        title = title.replace(Regex("\\s+"), " ").trim()
         if (title.isBlank()) return null
+        // Hindari membuat item dari tombol navigasi atau label kategori.
+        if (title.equals("anime", true) || title.equals("lihat semua", true)) return null
 
         val poster = posterFrom(image)
-        val type = if (title.contains("movie", true) || path.contains("-movie", true)) TvType.AnimeMovie else TvType.Anime
-        return newAnimeSearchResponse(title, path, type) {
-            posterUrl = poster
-        }
+        val type = if (title.contains("movie", true) || detailUrl.contains("-movie", true)) TvType.AnimeMovie else TvType.Anime
+        return newAnimeSearchResponse(title, detailUrl, type) { posterUrl = poster }
     }
 
     private fun parseAnimeCards(document: org.jsoup.nodes.Document): List<SearchResponse> {
