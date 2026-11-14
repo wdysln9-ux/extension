@@ -39,25 +39,38 @@ class SakunimeProvider : MainAPI() {
     }
 
     private fun Element.toSearchResponse(): SearchResponse? {
-        val anchor = if (tagName() == "a") this else selectFirst("a[href]") ?: return null
+        val anchor = if (tagName() == "a") this else selectFirst("a[href*='/anime/']") ?: return null
         val href = absolute(anchor.attr("href")) ?: return null
-        if (!href.startsWith(mainUrl) || href == mainUrl ||
-            href.contains("/genre/") || href.contains("/jadwal/") ||
-            href.contains("/ongoing/") || href.contains("/completed/") ||
-            href.contains("/search/")) return null
+        val path = try { java.net.URI(href).path.trimEnd('/') } catch (_: Exception) { return null }
+        val slug = path.substringAfterLast("/")
+        if (!path.matches(Regex("/anime/[^/]+")) ||
+            slug in setOf("ongoing", "completed", "genre", "jadwal")) return null
 
-        val image = selectFirst("img") ?: anchor.selectFirst("img")
-        val title = (selectFirst(".title, .anime-title, .entry-title, h2, h3")?.text()
-            ?: anchor.attr("title").ifBlank { image?.attr("alt").orEmpty().ifBlank { anchor.text() } })
-            .trim()
-        if (title.isBlank() || title.length < 2) return null
+        // Sakunime's cards can place the image and title beside the anime anchor,
+        // so inspect a few parent levels when the anchor itself has no poster.
+        var card: Element? = anchor
+        var image: Element? = anchor.selectFirst("img")
+        var title = anchor.attr("title").trim().ifBlank { anchor.text().trim() }
+        repeat(4) {
+            if (card == null || (image != null && title.isNotBlank())) return@repeat
+            card = card?.parent()
+            if (image == null) image = card?.selectFirst("img")
+            if (title.isBlank()) {
+                title = card?.selectFirst("h2, h3, .title, .anime-title")?.text()?.trim().orEmpty()
+            }
+        }
+        if (title.isBlank()) title = image?.attr("alt").orEmpty().trim()
+        if (title.isBlank()) return null
 
         val poster = absolute(
             image?.attr("data-src")?.ifBlank {
-                image.attr("data-lazy-src").ifBlank { image.attr("data-original").ifBlank { image.attr("src") } }
+                image.attr("data-lazy-src").ifBlank {
+                    image.attr("data-original").ifBlank { image.attr("src") }
+                }
             }
         )
-        val type = if (title.contains("movie", true)) TvType.AnimeMovie else TvType.Anime
+        val type = if (title.contains("movie", true) || slug.contains("movie", true))
+            TvType.AnimeMovie else TvType.Anime
         return newAnimeSearchResponse(title, href, type) { posterUrl = poster }
     }
 
@@ -65,9 +78,8 @@ class SakunimeProvider : MainAPI() {
         val base = request.data
         val url = if (page <= 1) base else base + (if (base.contains("?")) "&" else "?") + "page=$page"
         val document = app.get(url, headers = headers).document
-        val results = document.select(
-            ".anime-card, .anime-item, .film-item, .flw-item, .post, article, .item, a[href*='/anime/']"
-        ).mapNotNull { it.toSearchResponse() }.distinctBy { it.url }
+        val results = document.select("a[href*='/anime/']")
+            .mapNotNull { it.toSearchResponse() }.distinctBy { it.url }
         return newHomePageResponse(request.name, results, hasNext = results.isNotEmpty())
     }
 
@@ -85,9 +97,8 @@ class SakunimeProvider : MainAPI() {
         for (url in urls) {
             try {
                 val document = app.get(url, headers = headers).document
-                val results = document.select(
-                    ".anime-card, .anime-item, .film-item, .flw-item, .post, article, .item, a[href*='/anime/']"
-                ).mapNotNull { it.toSearchResponse() }.distinctBy { it.url }
+                val results = document.select("a[href*='/anime/']")
+                    .mapNotNull { it.toSearchResponse() }.distinctBy { it.url }
                 if (results.isNotEmpty()) return results
             } catch (_: Exception) { }
         }
@@ -98,7 +109,8 @@ class SakunimeProvider : MainAPI() {
         val pageUrl = absolute(url) ?: url
         val document = app.get(pageUrl, headers = headers).document
         val title = (
-            document.selectFirst("h1, .anime-title, .entry-title, .film-name")?.text()
+            document.selectFirst("h1, .pg-bar-title, .anime-title, .entry-title, .film-name")?.text()
+                ?: document.selectFirst("#playerShell")?.attr("data-ep-title")
                 ?: document.selectFirst("meta[property=og:title]")?.attr("content")
                 ?: document.title()
             ).substringBefore(" | ").substringBefore(" - Sakunime").trim()
@@ -114,10 +126,13 @@ class SakunimeProvider : MainAPI() {
             ?: document.selectFirst("meta[name=description]")?.attr("content")
 
         val episodes = document.select(
-            "a[href*='/episode/'], a[href*='/watch/'], .episode-list a[href], .episodes a[href], .eps a[href]"
+            "a.watch-eprow[href], .episode-list a[href*='/watch/'], a[href*='/episode/'], a[href*='/watch/']"
         ).mapNotNull { anchor ->
             val episodeUrl = absolute(anchor.attr("href")) ?: return@mapNotNull null
-            val label = anchor.text().trim().ifBlank { anchor.attr("title").trim() }
+            val label = anchor.attr("title").trim().ifBlank { anchor.text().trim() }.ifBlank {
+                Regex("(?i)(?:episode|ep|eps)\\s*[-:#.]?\\s*\\d+(?:\\.\\d+)?")
+                    .find(episodeUrl)?.value.orEmpty()
+            }
             if (label.isBlank() || episodeUrl == pageUrl) return@mapNotNull null
             val number = Regex("(?i)(?:episode|eps?|ep)\\s*[-:#.]?\\s*(\\d+(?:\\.\\d+)?)")
                 .find(label)?.groupValues?.getOrNull(1)?.toDoubleOrNull()?.toInt()
@@ -167,11 +182,13 @@ class SakunimeProvider : MainAPI() {
             }
         }
 
-        val frames = document.select("iframe[src], video[src], video source[src], source[src]")
+        val defaultPlayer = document.selectFirst("#playerShell")?.attr("data-default")
+        val defaultPlayerUrl = absolute(defaultPlayer)?.takeIf { it.startsWith("http") }
+        val frames = (listOfNotNull(defaultPlayerUrl) + document.select("iframe[src], video[src], video source[src], source[src]")
             .mapNotNull { element ->
                 val raw = element.attr("src")
                 absolute(raw)?.takeIf { it.startsWith("http") }
-            }.distinct()
+            }).distinct()
 
         var found = false
         for (frame in frames) {
