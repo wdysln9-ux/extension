@@ -134,7 +134,7 @@ class SakunimeProvider : MainAPI() {
         if (title.isBlank()) throw ErrorLoadingException("Judul anime tidak ditemukan")
 
         val poster = absolute(
-            document.selectFirst("meta[property=og:image]")?.attr("content)
+            document.selectFirst("meta[property=og:image]")?.attr("content")
                 ?: document.selectFirst("meta[name=twitter:image]")?.attr("content")
                 ?: posterFrom(document.selectFirst(".anime-poster img, .poster img, img"))
         )
