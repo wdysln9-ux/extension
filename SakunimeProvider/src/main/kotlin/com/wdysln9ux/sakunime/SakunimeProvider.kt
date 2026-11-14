@@ -62,13 +62,13 @@ class SakunimeProvider : MainAPI() {
         if (title.isBlank()) title = image?.attr("alt").orEmpty().trim()
         if (title.isBlank()) return null
 
-        val poster = absolute(
-            image?.attr("data-src")?.ifBlank {
-                image.attr("data-lazy-src").ifBlank {
-                    image.attr("data-original").ifBlank { image.attr("src") }
-                }
-            }
-        )
+        val poster = image?.let { img ->
+            val raw = listOf("data-src", "data-lazy-src", "data-original", "src")
+                .asSequence()
+                .map { img.attr(it).trim() }
+                .firstOrNull { it.isNotBlank() }
+            absolute(raw)
+        }
         val type = if (title.contains("movie", true) || slug.contains("movie", true))
             TvType.AnimeMovie else TvType.Anime
         return newAnimeSearchResponse(title, href, type) { posterUrl = poster }
