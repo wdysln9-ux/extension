@@ -1,4 +1,4 @@
-version = 1
+version = 2
 
 cloudstream {
     description = "Sakunime anime provider with episode, server and subtitle support"
